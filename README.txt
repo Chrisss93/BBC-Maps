@@ -1,0 +1,1 @@
+Hello! This is my first attempt at using the leaflet package in R in conjunction with Shiny! This App is designed to test jcheng5’s Leaflet library for reactive Shiny programming. Please report any errors to this repository. Thanks!

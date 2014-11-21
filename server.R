@@ -127,7 +127,7 @@ shinyServer(function(input, output, session) {
     df$Story.count <- 0 #Initialize vector
     country_tags <- gsub(",", "|", df$Tag, fixed =TRUE)
     main_address <- "http://www.bbc.com/news/world/"
-    full_address <- c(main_address, paste(address, unique(df$Region), "/", sep=""))
+    full_address <- c(main_address, paste(main_address, unique(df$Region), "/", sep=""))
     test <- ldply(full_address[-8], scrapeBBC)
 
     #Really shitty code

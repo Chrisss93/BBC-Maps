@@ -372,3 +372,12 @@ scrapeBBC <- function(address) {
   article$region <- address
   return(article)
 }
+reportString <- function(selected) {
+  country <- country_unique[country_unique$Country == selected,]
+  return(tags$div(tags$strong(selected), 
+                  tags$strong(paste("[",country$ADM0_A3,"]", sep="")),
+                  if(is.na(country$NAME_FORMA)) {NULL} else{
+                    tags$div(country$NAME_FORMA)},
+                  tags$div(tags$strong("Region:",span(country$Region.proper,
+                                                      style=paste("color",country$Color,sep=":"))))))
+}

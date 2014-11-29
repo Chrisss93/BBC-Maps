@@ -4,16 +4,21 @@ require(ggplot2)
 
 
 shinyServer(function(input, output, session) {
-  values <- reactiveValues(highlight = c())
+  values <- reactiveValues()
   map <- createLeafletMap(session, "map")
   
-  drawMap <- function(df, highlight = FALSE) {
-    map$addPolygon(lat = df$Latitude, 
-                   lng = df$Longitude,
-                   layerId = country_unique$Country,
-                   lapply(as.list(country_unique$Color), function(x){list(fillColor=x)}),
-                   list(fill=TRUE, stroke = TRUE, opacity = 1, color="white", fillOpacity=ifelse(highlight, 0.5, 0.2),
-                        weight=ifelse(highlight, 3, 1))
+  drawMap <- function(df, highlight = FALSE, select = FALSE) {
+    country_data <- df[!(duplicated(df$Country)|is.na(df$Country)),]
+    map$addPolygon(lat = I(df$Latitude), 
+                   lng = I(df$Longitude),
+                   layerId = I(country_data$Country),
+                   I(lapply(country_data$Country, function(x){
+                     list(fillColor = unique(country_data$Color[country_data$Country == x]))
+                   })),
+                   I(list(fill=TRUE, stroke = TRUE, opacity = 1,
+                          color = ifelse(select, "white", "black"),
+                          fillOpacity = ifelse(highlight, 0.5, 0.2),
+                          weight = ifelse(highlight, 2, 0.5)))
     )
   }
   session$onFlushed(once=TRUE, function() {
@@ -23,6 +28,23 @@ shinyServer(function(input, output, session) {
   observe({
     values$hover <- input$map_shape_mouseover$id
   })
+  lastHover <- c()
+  observe({
+    if(length(lastHover) > 0) {
+      drawMap(country_df[country_df$Country %in% lastHover,])
+    }
+    lastHover <<- values$hover
+    if(!is.null(values$hover)) {
+      isolate({drawMap(country_df[country_df$Country %in% values$hover,], TRUE)})
+    }
+  })
+  lastClick <- c()
+  observe({
+    if(!is.null(values$click)) {
+      isolate({drawMap(country_df[country_df$Country %in% values$click,], TRUE, TRUE)})
+    }
+  })
+  
   observe({
     values$click <- input$map_shape_click$id
   })
@@ -46,30 +68,25 @@ shinyServer(function(input, output, session) {
     country$Tag <- paste(country$Tag, input$tags, sep=",")
     return(country)
   })
-  
-  
-  
+
   output$basic_ui <- renderUI({
     if(is.null(values$hover)) {
-      return(tags$div("Hover over a country"))
+      return(div(br(),tags$div("Hover over a country"),br()))
     }
-    reportString <- function(selected) {
-      country <- country_unique[country_unique$Country == selected,]
-      return(tags$div(tags$strong(selected), 
-                      tags$strong("[",country$ADM0_A3,"]"),
-                      if(is.na(country$NAME_FORMA)) {NULL} else{
-                        tags$div("(",country$NAME_FORMA,")")},
-                      tags$div(tags$strong("Region:",span(country$Region.proper,
-                                                          style=paste("color",country$Color,sep=":"))))))
-    }
+    if(is.null(values$click)) {
+      message <- tags$div("Click a country to begin scraping protocols")
+    } else { message <- tags$div(hr(style="border-color: black;"), h4("Scraping protocols"))}
+    tags$div(reportString(values$hover), message)
+  })
+  
+  output$scrape_ui <- renderUI({
     #Real shit code below. Must go back and shore it up.
     if(is.null(values$click)) {
-      menu <- tags$div(reportString(values$hover), br(), br(),
-                       tags$div("Click a country to begin scraping protocols"))
-    } else {
-      menu <- tags$div(reportString(values$click))  
+      return(NULL)
     }
-    return(menu)
+    title <- reportString(values$click)
+    title[[3]][[3]] <- NULL
+    tags$div(title) 
   })
   
   output$title <- renderText({
@@ -122,19 +139,24 @@ shinyServer(function(input, output, session) {
   output$news_stories <- renderDataTable({prepare_news()},
                                          options = list(pageLength=10, searcheable=FALSE))
   
-  output$country_stats <- renderPlot({
+  all_news <- reactive({
     df <- country_unique[!is.na(country_unique$Tag),]
-    df$Story.count <- 0 #Initialize vector
-    country_tags <- gsub(",", "|", df$Tag, fixed =TRUE)
     main_address <- "http://www.bbc.com/news/world/"
     full_address <- c(main_address, paste(main_address, unique(df$Region), "/", sep=""))
     test <- ldply(full_address[-8], scrapeBBC)
-
+    return(test)
+  })
+    
+  output$country_stats <- renderPlot({
+    all_news <- all_news()
+    df <- country_unique[!is.na(country_unique$Tag),]
+    country_tags <- gsub(",", "|", df$Tag, fixed =TRUE)
     #Really shitty code
+    df$Story.count <- 0 #Initialize vector
     for(i in seq(country_tags)) {
-      indicator <- grep(country_tags[i], test$title)
+      indicator <- grep(country_tags[i], all_news$title)
       df$Story.count[i] <- df$Story.count[i] + length(indicator)
-      indicator2 <- grep(country_tags[i], test$text)
+      indicator2 <- grep(country_tags[i], all_news$text)
       df$Story.count[i] <- df$Story.count[i] + length(indicator2) - sum(indicator2 %in% indicator)
     }
     #Dumbass mistake on United States virgin islands and Barbados. Gotta go back and fix my pluralPosession function
@@ -146,8 +168,8 @@ shinyServer(function(input, output, session) {
     plot_data$Country[shorten] <- plot_data$ADM0_A3[shorten]
     plot_data$Country <- reorder(plot_data$Country, plot_data$Story.count)
 
-    ggplot(plot_data, aes(Country, Story.count, fill=Region.proper)) + geom_bar(stat="identity") + 
-      theme(axis.text.x = element_text(angle=45),
+    ggplot(plot_data, aes(Country, Story.count, fill=Region.proper)) + geom_bar(stat="identity", alpha=0.7) + 
+      theme(axis.text.x = element_text(angle=45,hjust=1),
             legend.position = "top", legend.direction = "vertical", legend.title.align = 0.5) +
     guides(fill=guide_legend("Region",ncol=3)) + ylab("Stories reported by BBC")
     })
